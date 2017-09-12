@@ -57,7 +57,7 @@ private:
   // inner states
   string stock; // store rest chars for chunk handling
 
-  Token *getToken();
+  Token *getToken(bool end);
   pair<int, int> findTokenTypeFromMatrix(vector<IntsPair> matrix,
                                          Configuration *configuration);
 

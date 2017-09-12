@@ -83,12 +83,14 @@ Parser::Parser(vector<TokenType *> tokenTypes) {
   this->stock = "";
 }
 
-Token *Parser::getToken() {
+Token *Parser::getToken(bool end) {
   string::iterator it;
   vector<IntsPair> matrix;
   Configuration *configuration = new Configuration(this->tokenTypes);
 
   string prefix = "";
+
+  bool meetEmpty = false;
 
   for (it = this->stock.begin(); it != this->stock.end(); ++it) {
     char ch = (*it);
@@ -97,24 +99,30 @@ Token *Parser::getToken() {
     configuration->transform(ch);
     // meet the empty situation, no parts or matchs for current prefix,
     // it means even get more chunks, will still no parts or matchs.
-    if (!configuration->getPartsMatchs().first.size() &&
-        !configuration->getPartsMatchs().second.size()) {
-      pair<int, int> matchRet = findTokenTypeFromMatrix(matrix, configuration);
+    meetEmpty = !configuration->getPartsMatchs().first.size() &&
+                !configuration->getPartsMatchs().second.size();
 
-      if (matchRet.first == -1) {
-        throw new runtime_error("can not match prefix " + prefix);
-      } else {
-        Token *token =
-            new Token(configuration->getTokenType(matchRet.first)->getName(),
-                      prefix.substr(0, matchRet.second + 1));
-
-        this->stock = this->stock.substr(
-            matchRet.second + 1, this->stock.size() - matchRet.second - 1);
-
-        return token;
-      }
+    if (meetEmpty) {
+      break;
     } else {
       matrix.push_back(configuration->getPartsMatchs());
+    }
+  }
+
+  if (meetEmpty || end) {
+    pair<int, int> matchRet = findTokenTypeFromMatrix(matrix, configuration);
+
+    if (matchRet.first == -1) {
+      throw new runtime_error("can not match prefix " + prefix);
+    } else {
+      Token *token =
+          new Token(configuration->getTokenType(matchRet.first)->getName(),
+                    prefix.substr(0, matchRet.second + 1));
+
+      this->stock = this->stock.substr(
+          matchRet.second + 1, this->stock.size() - matchRet.second - 1);
+
+      return token;
     }
   }
 
@@ -158,7 +166,7 @@ vector<Token *> Parser::parseChunk(string chunk) {
   this->stock += chunk; // update current stock
 
   while (this->stock.size()) {
-    Token *token = getToken();
+    Token *token = getToken(false);
     if (token == NULL) {
       break;
     } else {
@@ -170,8 +178,13 @@ vector<Token *> Parser::parseChunk(string chunk) {
 }
 
 vector<Token *> Parser::parseEnd() {
-  vector<Token *> tokens;
-  return tokens;
+  Token *token = getToken(true); // last token
+  vector<Token *> list;
+  if (token != NULL) {
+    list.push_back(token);
+  }
+
+  return list;
 }
 
 vector<Token *> Parser::parse(string data) {
