@@ -1,76 +1,43 @@
 #pragma once
 
-#include "../thirdparty/simple-fsm-dsl/lib/fsm.h"
-#include <iostream>
+#include "../thirdparty/simple-fsm-dsl/lib/parser.h"
+#include "token.h"
+#include "tokenType.h"
 
 using namespace std;
 
-namespace tkp {
-class TokenType {
-private:
-  string name;
-  sfsm::StateBox *stateBox;
-  int priority;
-
-public:
-  TokenType(string name, sfsm::StateBox *stateBox);
-  TokenType(string name, sfsm::StateBox *stateBox, int priority);
-
-  string getName();
-  int getPriority();
-  sfsm::StateBox *getStateBox();
-};
-
-class Token {
-private:
-  string name;
-  string text;
-
-public:
-  Token(string name, string text);
-  string getName();
-  string getText();
-};
-
-typedef vector<int> Ints;
-typedef pair<Ints, Ints> IntsPair;
-
-class Configuration {
-private:
-  vector<TokenType *> types;
-  vector<sfsm::FSM *> fsms;
-  IntsPair partsMatchs;
-
-  void transitFSM(int index, char letter, Ints *nextMatchs, Ints *nextParts);
-
-public:
-  Configuration(vector<TokenType *> types);
-  void transform(char letter);
-  IntsPair getPartsMatchs();
-  TokenType *getTokenType(int index);
-};
-
+namespace ftp {
 class Parser {
+  typedef pair<int, int> TokenState; // (tokenTypeIndex, state)
+  typedef vector<TokenState> TokenStates;
+  typedef pair<TokenStates, TokenStates> Configuration;
+
 private:
-  vector<TokenType *> tokenTypes; // token types definition
+  string fowardedText;
+  vector<TokenType> tokenTypes;
+  vector<Configuration> configurationRecords;
 
-  // inner states
-  string stock; // store rest chars for chunk handling
+  void resetConfigurationRecords();
+  void transitState(int tokenTypeIndex, int tokenState, char letter,
+                    Configuration &newConfig);
+  bool isEmptyConfiguration(Configuration &conf);
+  bool fowardToEmptyConfiguration(string text);
+  pair<int, int>
+  findTheBestConfiguration(); // (configurationIndex, tokenTypeIndex)
 
-  Token *getToken(bool end);
-  pair<int, int> findTokenTypeFromMatrix(vector<IntsPair> matrix,
-                                         Configuration *configuration);
+  Token fetchToken();
 
 public:
-  Parser(vector<TokenType *> tokenTypes);
+  Parser(vector<TokenType> &tokenTypes);
 
-  vector<Token *> parse(string data);
+  vector<Token> parseChunk(string chunk);
 
-  /**
-   * parse data chunk by chunk until meeting the end.
-   */
-  vector<Token *> parseChunk(string chunk);
+  Configuration transit(Configuration &current, char letter);
 
-  vector<Token *> parseEnd();
+  vector<Token> parseEnd();
+
+  void displayRecords();
 };
-} // namespace tkp
+
+vector<Token> parseString(vector<TokenType> tokenTypes, string text);
+} // namespace ftp

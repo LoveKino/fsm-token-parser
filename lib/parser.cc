@@ -1,196 +1,204 @@
 #include "parser.h"
 
-namespace tkp {
-TokenType::TokenType(string name, sfsm::StateBox *stateBox, int priority) {
-  this->name = name;
-  this->stateBox = stateBox;
-  this->priority = priority;
-}
+using namespace std;
 
-TokenType::TokenType(string name, sfsm::StateBox *stateBox) {
-  this->name = name;
-  this->stateBox = stateBox;
-  this->priority = 1;
-}
-
-string TokenType::getName() { return this->name; }
-int TokenType::getPriority() { return this->priority; }
-sfsm::StateBox *TokenType::getStateBox() { return this->stateBox; }
-
-Token::Token(string name, string text) {
-  this->name = name;
-  this->text = text;
-}
-
-string Token::getName() { return this->name; }
-
-string Token::getText() { return this->text; }
-
-Configuration::Configuration(vector<TokenType *> types) {
-  this->types = types;
-
-  Ints parts;
-  Ints matchs;
-
-  vector<TokenType *>::iterator it;
-  int index = 0;
-  for (it = types.begin(); it != types.end(); ++it) {
-    this->fsms.push_back(sfsm::fsm((*it)->getStateBox()));
-    parts.push_back(index);
-    index++;
-  }
-
-  this->partsMatchs = make_pair(parts, matchs);
-}
-
-IntsPair Configuration::getPartsMatchs() { return this->partsMatchs; };
-
-TokenType *Configuration::getTokenType(int index) { return this->types[index]; }
-
-void Configuration::transform(char letter) {
-  vector<int> nextParts;
-  vector<int> nextMatchs;
-
-  Ints parts = this->partsMatchs.first;
-  Ints matchs = this->partsMatchs.second;
-
-  // parts
-  for (Ints::iterator it = parts.begin(); it != parts.end(); ++it) {
-    this->transitFSM(*it, letter, &nextMatchs, &nextParts);
-  }
-
-  // matchs
-  for (Ints::iterator j = matchs.begin(); j != matchs.end(); ++j) {
-    this->transitFSM(*j, letter, &nextMatchs, &nextParts);
-  }
-
-  this->partsMatchs = make_pair(nextParts, nextMatchs);
-};
-
-void Configuration::transitFSM(int index, char letter, Ints *nextMatchs,
-                               Ints *nextParts) {
-  sfsm::FSM *fsm = this->fsms[index];
-  sfsm::TRANSITION_RESULT_TYPES type = fsm->transit(letter);
-  if (type == sfsm::MATCH) {
-    nextMatchs->push_back(index);
-  } else if (type == sfsm::WAIT) {
-    nextParts->push_back(index);
-  }
-}
-
-Parser::Parser(vector<TokenType *> tokenTypes) {
+namespace ftp {
+Parser::Parser(vector<TokenType> &tokenTypes) {
   this->tokenTypes = tokenTypes;
-  this->stock = "";
+  this->resetConfigurationRecords();
 }
 
-Token *Parser::getToken(bool end) {
-  string::iterator it;
-  vector<IntsPair> matrix;
-  Configuration *configuration = new Configuration(this->tokenTypes);
+void Parser::resetConfigurationRecords() {
+  this->fowardedText = "";
+  this->configurationRecords.clear();
 
-  string prefix = "";
-
-  bool meetEmpty = false;
-
-  for (it = this->stock.begin(); it != this->stock.end(); ++it) {
-    char ch = (*it);
-    prefix += string(1, ch);
-
-    configuration->transform(ch);
-    // meet the empty situation, no parts or matchs for current prefix,
-    // it means even get more chunks, will still no parts or matchs.
-    meetEmpty = !configuration->getPartsMatchs().first.size() &&
-                !configuration->getPartsMatchs().second.size();
-
-    if (meetEmpty) {
-      break;
-    } else {
-      matrix.push_back(configuration->getPartsMatchs());
-    }
-  }
-
-  if (meetEmpty || end) {
-    pair<int, int> matchRet = findTokenTypeFromMatrix(matrix, configuration);
-
-    if (matchRet.first == -1) {
-      throw new runtime_error("can not match prefix " + prefix);
-    } else {
-      Token *token =
-          new Token(configuration->getTokenType(matchRet.first)->getName(),
-                    prefix.substr(0, matchRet.second + 1));
-
-      this->stock = this->stock.substr(
-          matchRet.second + 1, this->stock.size() - matchRet.second - 1);
-
-      return token;
-    }
-  }
-
-  return NULL;
-}
-
-pair<int, int> Parser::findTokenTypeFromMatrix(vector<IntsPair> matrix,
-                                               Configuration *configuration) {
-  TokenType *finded = NULL;
-  int tokenTypeIndex = -1;
-
-  int prefixIndex = -1;
-  int index = -1;
-
-  for (vector<IntsPair>::iterator it = matrix.begin(); it != matrix.end();
-       ++it) {
+  Configuration conf;
+  unsigned int index = 0;
+  for (auto i = tokenTypes.begin(); i != tokenTypes.end(); ++i) {
+    conf.first.push_back({index, i->getRegExp().getStartState()});
     index++;
+  }
 
-    Ints matchs = (*it).second;
-    for (Ints::iterator j = matchs.begin(); j != matchs.end(); ++j) {
-      TokenType *curTokenType = configuration->getTokenType(*j);
-      if (finded == NULL ||
-          finded->getPriority() <
-              curTokenType->getPriority() || // consider priority
-          finded->getPriority() ==
-              curTokenType->getPriority() // later matching has a longer prefix,
-                                          // choose the longest prefix one
-      ) {
-        finded = curTokenType;
-        tokenTypeIndex = *j;
-        prefixIndex = index;
+  this->configurationRecords.push_back(conf);
+}
+
+bool Parser::isEmptyConfiguration(Configuration &conf) {
+  return !conf.first.size() && !conf.second.size();
+}
+
+vector<Token> Parser::parseChunk(string chunk) {
+  vector<Token> tokens;
+  string stock = chunk;
+
+  while (this->fowardToEmptyConfiguration(stock)) {
+    Token token = this->fetchToken();
+    tokens.push_back(token);
+    int tokenTextSize = token.getText().size();
+
+    // rest
+    stock = stock.substr(tokenTextSize, stock.size() - tokenTextSize);
+    this->resetConfigurationRecords();
+  }
+
+  return tokens;
+}
+
+Token Parser::fetchToken() {
+  auto finded = this->findTheBestConfiguration();
+  int configurationIndex = finded.first;
+  int tokenTypeIndex = finded.second;
+
+  if (configurationIndex == -1) {
+    this->displayRecords();
+    // TODO
+    throw runtime_error("Can not parse text to tokens. Forwarded text is " +
+                        this->fowardedText);
+  } else {
+    string tokenText = this->fowardedText.substr(0, configurationIndex);
+    string tokenName = this->tokenTypes[tokenTypeIndex].getName();
+    this->resetConfigurationRecords();
+
+    return {tokenName, tokenText};
+  }
+}
+
+void Parser::transitState(int tokenTypeIndex, int tokenState, char letter,
+                          Configuration &newConfig) {
+  auto regExp = this->tokenTypes[tokenTypeIndex].getRegExp();
+
+  int nextState = regExp.transit(tokenState, letter);
+
+  if (regExp.isEndState(nextState)) {
+    // match
+    newConfig.second.push_back({tokenTypeIndex, nextState});
+  } else if (nextState != -1) {
+    // part
+    newConfig.first.push_back({tokenTypeIndex, nextState});
+  }
+}
+
+Parser::Configuration Parser::transit(Configuration &current, char letter) {
+  Configuration newConfig;
+
+  //
+  for (auto i = current.first.begin(); i != current.first.end(); ++i) {
+    int tokenTypeIndex = i->first;
+    int tokenState = i->second;
+    this->transitState(tokenTypeIndex, tokenState, letter, newConfig);
+  }
+
+  //
+  for (auto i = current.second.begin(); i != current.second.end(); ++i) {
+    int tokenTypeIndex = i->first;
+    int tokenState = i->second;
+
+    this->transitState(tokenTypeIndex, tokenState, letter, newConfig);
+  }
+
+  return newConfig;
+}
+
+bool Parser::fowardToEmptyConfiguration(string text) {
+  auto current = this->configurationRecords.back();
+  for (auto i = text.begin(); i != text.end(); ++i) {
+    char letter = *i;
+    auto nextConf = this->transit(current, letter);
+
+    if (this->isEmptyConfiguration(nextConf)) {
+      // do not consume current letter, because it causes the empty situation
+      // meet empty, prepare to fetch token
+      return true;
+    } else {
+      // change current configuration
+      this->configurationRecords.push_back(nextConf);
+      this->fowardedText += string(1, letter);
+      current = nextConf;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * 1. biggest prority
+ * 2. longest for same token type
+ */
+pair<int, int> Parser::findTheBestConfiguration() {
+  int configurationIndex = -1;
+  int tokenTypeIndex = -1;
+  int priority = -1;
+
+  int recordSize = this->configurationRecords.size();
+  for (int i = 0; i < recordSize; i++) {
+    auto matchs = this->configurationRecords[i].second;
+    int matchSize = matchs.size();
+    for (int j = 0; j < matchSize; j++) {
+      int ttIndex = matchs[j].first;
+      if (configurationIndex == -1) {
+        configurationIndex = i;
+        // token type index
+        tokenTypeIndex = ttIndex;
+        priority = this->tokenTypes[ttIndex].getPriority();
+      } else {
+        if (tokenTypeIndex == ttIndex) {
+          configurationIndex = i; // choose the longest
+        } else if (this->tokenTypes[tokenTypeIndex].getPriority() <
+                   this->tokenTypes[ttIndex]
+                       .getPriority()) { // choose the higher priority
+          configurationIndex = i;
+          // token type index
+          tokenTypeIndex = ttIndex;
+          priority = this->tokenTypes[ttIndex].getPriority();
+        }
       }
     }
   }
 
-  return make_pair(tokenTypeIndex, prefixIndex);
+  return {configurationIndex, tokenTypeIndex};
 }
 
-vector<Token *> Parser::parseChunk(string chunk) {
-  vector<Token *> tokens;
-  this->stock += chunk; // update current stock
+vector<Token> Parser::parseEnd() {
+  vector<Token> tokens;
+  string rest = this->fowardedText;
 
-  while (this->stock.size()) {
-    Token *token = getToken(false);
-    if (token == NULL) {
-      break;
-    } else {
-      tokens.push_back(token);
+  while (rest.size()) {
+    Token token = this->fetchToken();
+    tokens.push_back(token);
+    int tokenTextSize = token.getText().size();
+    rest = rest.substr(tokenTextSize, rest.size() - tokenTextSize);
+  }
+
+  return tokens;
+}
+
+void Parser::displayRecords() {
+  cout << "configuration record: " << endl;
+  for (auto i = this->configurationRecords.begin();
+       i != this->configurationRecords.end(); ++i) {
+    auto parts = i->first;
+    auto matchs = i->second;
+
+    cout << "   part: ";
+    for (auto j = parts.begin(); j != parts.end(); ++j) {
+      cout << "(" << j->first << ", " << j->second << ")  ";
+    }
+
+    cout << endl << "   match: ";
+    for (auto k = matchs.begin(); k != parts.end(); ++k) {
+      cout << "(" << k->first << ", " << k->second << ")  ";
     }
   }
 
-  return tokens;
+  cout << endl;
 }
 
-vector<Token *> Parser::parseEnd() {
-  Token *token = getToken(true); // last token
-  vector<Token *> list;
-  if (token != NULL) {
-    list.push_back(token);
-  }
+vector<Token> parseString(vector<TokenType> tokenTypes, string text) {
+  Parser parser(tokenTypes);
+  vector<Token> tokens = parser.parseChunk(text);
+  vector<Token> lastTokens = parser.parseEnd();
 
-  return list;
-}
-
-vector<Token *> Parser::parse(string data) {
-  vector<Token *> tokens = this->parseChunk(data);
-  vector<Token *> lastTokens = this->parseEnd();
   tokens.insert(tokens.end(), lastTokens.begin(), lastTokens.end());
   return tokens;
 }
-} // namespace tkp
+
+} // namespace ftp

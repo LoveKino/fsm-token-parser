@@ -1,58 +1,140 @@
 #include "../../lib/parser.h"
+#include "../../thirdparty/simple-fsm-dsl/lib/commonTokenReg.h"
 #include <assert.h>
 #include <iostream>
 
-void test() {}
+using namespace std;
+using namespace ftp;
+using namespace sfsm;
 
-vector<tkp::TokenType *> jsonTokenTypes() {
-  vector<tkp::TokenType *> types;
-
-  types.push_back(new tkp::TokenType("number", sfsm::jsonNumber()));
-  types.push_back(new tkp::TokenType("string", sfsm::jsonString()));
-  types.push_back(new tkp::TokenType("{", sfsm::box("{")));
-  types.push_back(new tkp::TokenType("}", sfsm::box("}")));
-  types.push_back(new tkp::TokenType(",", sfsm::box(",")));
-  types.push_back(new tkp::TokenType(":", sfsm::box(":")));
-  types.push_back(new tkp::TokenType("[", sfsm::box("[")));
-  types.push_back(new tkp::TokenType("]", sfsm::box("]")));
-
-  return types;
-}
-
-void equalTokens(vector<tkp::Token *> tokens, string *strs) {
-  int index = -1;
-  for (vector<tkp::Token *>::iterator it = tokens.begin(); it != tokens.end();
-       ++it) {
-    string tokenName = (*it)->getName();
-    string tokenText = (*it)->getText();
-
-    cout << "tokenName: " << tokenName << "\ntokenText: " << tokenText << endl;
-
-    index++;
-    string name = strs[index];
-    assert(tokenName.compare(name) == 0);
-
-    index++;
-    string text = strs[index];
-    assert(tokenText.compare(text) == 0);
+void displayTokens(vector<Token> &tokens) {
+  for (auto i = tokens.begin(); i != tokens.end(); ++i) {
+    cout << "Token Name: " << i->getName() << "  token text: " << i->getText()
+         << endl;
   }
 }
 
+int compareTokens(vector<Token> tokens1, vector<Token> tokens2) {
+  if (tokens1.size() != tokens2.size())
+    return -1;
+  int index = 0;
+  for (auto i = tokens1.begin(); i != tokens1.end(); i++) {
+    Token token = *i;
+    if (token != tokens2[index]) {
+      return index;
+    }
+    index++;
+  }
+
+  return -1;
+}
+
+typedef vector<string> TokenTypeParams;
+typedef vector<Token> Tokens;
+typedef pair<string, Tokens> DataCase;
+
+void testParseString(vector<TokenTypeParams> tokenTypeParams,
+                     vector<DataCase> cases) {
+  vector<TokenType> tokenTypes;
+  for (auto i = tokenTypeParams.begin(); i != tokenTypeParams.end(); ++i) {
+    auto item = *i;
+    RegularExp regExp(item[1]);
+    TokenType tokenType(item[0], regExp, stoi(item[2]));
+    tokenTypes.push_back(tokenType);
+  }
+
+  for (auto i = cases.begin(); i != cases.end(); ++i) {
+    string data = i->first;
+    Tokens tokens = i->second;
+    Tokens result = parseString(tokenTypes, data);
+
+    cout << "[parse text]" << data << endl;
+
+    int ret = compareTokens(tokens, result);
+    if (ret != -1) {
+      cout << "errored index is " << ret << endl;
+      cout << "expect:";
+      displayTokens(tokens);
+      cout << "real:";
+      displayTokens(result);
+    }
+
+    assert(ret == -1);
+  }
+}
+
+void testBasics() {
+  testParseString({{"identity", "[a-z]*", "0"}},
+                  {{"abc", {{"identity", "abc"}}}});
+}
+
+void testJsonStyle() {
+  testParseString(
+      {
+          //
+          {"string", CommonTokenReg::jsonStringExpStr, "1"},
+          {"number", CommonTokenReg::jsonNumberExpStr, "1"},
+          {"{", "\\{", "1"},
+          {"}", "\\}", "2"},
+          {"[", "\\[", "2"},
+          {"]", "\\]", "2"},
+          {",", "\\,", "2"},
+          {":", "\\:", "2"},
+          {"whitespace", "[ \n\r]*", "2"},
+          {"true", "true", "2"},
+          {"false", "false", "2"},
+          {"null", "null", "2"}
+          //
+      },
+      {
+          //
+          {"\"hello\"", {{"string", "\"hello\""}}}, //
+          {"123", {{"number", "123"}}},
+          {"{}", {{"{", "{"}, {"}", "}"}}},
+          {"true", {{"true", "true"}}},
+          {"false", {{"false", "false"}}},
+          {"null", {{"null", "null"}}},
+
+          {"[1,2,3]",
+           {{"[", "["},
+            {"number", "1"},
+            {",", ","},
+            {"number", "2"},
+            {",", ","},
+            {"number", "3"},
+            {"]", "]"}}},
+
+          {"{\"a\":1,\"b\":2}",
+           {
+               {"{", "{"},
+               {"string", "\"a\""},
+               {"number", "1"},
+               {":", ":"},
+               {",", ","},
+               {"string", "\"b\""},
+               {":", ":"},
+               {"number", "2"},
+           }},
+
+          {"[1,{\"attra\":{\"attrb\":10}}]",
+           {{"[", "["},
+            {",", ","},
+            {"{", "{"},
+            {"string", "\"attra\""},
+            {":", ":"},
+            {"{", "{"},
+            {"string", "\"attrb\""},
+            {":", ":"},
+            {"number", "10"},
+            {"}", "}"},
+            {"}", "}"},
+            {"]", "]"}}}
+          //
+      });
+};
+
 int main() {
-  string list1[] = {"number", "123"};
-  equalTokens((new tkp::Parser(jsonTokenTypes()))->parse("123"), list1);
-
-  string list2[] = {"string", "\"text\""};
-  equalTokens((new tkp::Parser(jsonTokenTypes()))->parse("\"text\""), list2);
-
-  string list3[] = {"[", "[", "number", "1",      ",", ",", "number",
-                    "2", ",", ",",      "number", "3", "]", "]"};
-  equalTokens((new tkp::Parser(jsonTokenTypes()))->parse("[1,2,3]"), list3);
-
-  string list4[] = {"{", "{",      "string",  "\"a\"", ":",
-                    ":", "string", "\"bcd\"", "}",     "}"};
-  equalTokens((new tkp::Parser(jsonTokenTypes()))->parse("{\"a\":\"bcd\"}"),
-              list4);
-
+  testBasics();
+  testJsonStyle();
   return 0;
 }
