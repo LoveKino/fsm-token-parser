@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../thirdparty/simple-fsm-dsl/lib/parser.h"
+#include "../thirdparty/regulator/lib/parser.h"
 #include "token.h"
 #include "tokenType.h"
 

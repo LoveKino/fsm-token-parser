@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../thirdparty/simple-fsm-dsl/lib/regularExp.h"
+#include "../thirdparty/regulator/lib/regularExp.h"
 
 using namespace std;
 

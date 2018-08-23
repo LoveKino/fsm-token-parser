@@ -5,7 +5,7 @@ cd `dirname $0`;
 TEST_BUILD_DIR=./build
 TEST_SRC_DIR=./src
 LIB_SRC_DIR=../lib
-THIRDPARTY_LIB=../thirdparty/simple-fsm-dsl/lib
+THIRDPARTY_LIB=../thirdparty/regulator/lib
 
 [ -d $TEST_BUILD_DIR ] && rm -rf $TEST_BUILD_DIR
 
