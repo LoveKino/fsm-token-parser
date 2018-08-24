@@ -1,6 +1,5 @@
 #pragma once
 
-#include "../thirdparty/regulator/lib/parser.h"
 #include "token.h"
 #include "tokenType.h"
 
