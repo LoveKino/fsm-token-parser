@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../thirdparty/regulator/lib/regularExp.h"
+#include "../../regulator/lib/regularExp.h"
 
 using namespace std;
 

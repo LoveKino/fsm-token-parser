@@ -1,5 +1,5 @@
-#include "../../lib/parser.h"
-#include "../../thirdparty/regulator/lib/commonTokenReg.h"
+#include "../lib/parser.h"
+#include "../../regulator/lib/commonTokenReg.h"
 #include <assert.h>
 #include <iostream>
 
