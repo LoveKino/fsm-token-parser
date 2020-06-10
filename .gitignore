@@ -40,3 +40,6 @@
 build
 
 thirdparty
+
+test/test.out
+deps
