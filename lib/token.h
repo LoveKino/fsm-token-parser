@@ -11,6 +11,8 @@ private:
   string text;
 
 public:
+  Token() = default;
+
   Token(string n, string t) : name(n), text(t){};
 
   string getName() const;
